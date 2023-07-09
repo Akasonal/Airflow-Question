@@ -1,0 +1,80 @@
+version: '3'
+
+x-airflow-image: &airflow-image apache/airflow:latest
+
+x-airflow-volume: &airflow-volume
+  - ./dags:/opt/airflow/dags
+  - ./logs:/opt/airflow/logs
+  - ./plugins:/opt/airflow/plugins
+  - ./airflow.cfg:/opt/airflow/airflow.cfg
+
+services:
+  airflow-webserver:
+    image: *airflow-image
+    ports:
+      - '8081:8080'
+    environment:
+      - AIRFLOW_UID=${UID:-50000}
+      - LOAD_EX=n
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
+      - AIRFLOW__WEBSERVER__EXPOSE_METRICS=True
+      - AIRFLOW__WEBSERVER__AUTH_ROLE_PUBLIC=Admin
+    volumes: *airflow-volume
+    depends_on:
+      - postgres
+      - redis
+      - mysql
+    command: >
+      bash -c "
+      airflow db init &&
+      airflow users create --username Akhil --firstname Admin --lastname User --role Admin --email akhil.anand@bijnis.com --password Akhil@123 &&
+      airflow webserver"
+
+  airflow-scheduler:
+    image: *airflow-image
+    command: >
+      bash -c "
+      airflow db init &&
+      airflow scheduler"
+    depends_on:
+      - postgres
+      - redis
+      - mysql
+    volumes: *airflow-volume
+
+  airflow-worker:
+    image: *airflow-image
+    command: >
+      bash -c "
+      airflow db init &&
+      celery -A airflow.executors.celery_executor worker -Q airflow -n worker@%h"
+    depends_on:
+      - airflow-webserver
+      - redis
+      - mysql
+    volumes: *airflow-volume
+
+  postgres:
+    image: postgres:12
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+
+  redis:
+    image: redis:latest
+
+  mysql:
+    image: mysql:latest
+    environment:
+      - MYSQL_ROOT_PASSWORD=airflow
+      - MYSQL_USER=airflow
+      - MYSQL_PASSWORD=airflow
+      - MYSQL_DATABASE=airflow
+    volumes:
+      - ./mysql-data:/var/lib/mysql  
+
+  slack-bot:
+    image: "python:3.9"
+    command: tail -f /dev/null
+    volumes: *airflow-volume
